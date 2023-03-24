@@ -29,6 +29,7 @@ logging.basicConfig(
     filename='main.log',
     filemode='a',
     format='%(asctime)s, %(levelname)s, %(message)s, %(name)s',
+    encoding='utf-8',
 )
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -145,8 +146,6 @@ def main():
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             send_message(bot, message)
-            time.sleep(RETRY_PERIOD)
-        else:
             time.sleep(RETRY_PERIOD)
 
 
