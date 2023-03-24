@@ -3,6 +3,7 @@ import logging
 import telegram
 import time
 import requests
+import sys
 
 from http import HTTPStatus
 from dotenv import load_dotenv
@@ -30,7 +31,7 @@ logging.basicConfig(
     format='%(asctime)s, %(levelname)s, %(message)s, %(name)s',
 )
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.StreamHandler())
+logger.addHandler(logging.StreamHandler(stream=sys.stdout))
 
 
 class NegativeValueException(Exception):
