@@ -41,8 +41,7 @@ class NegativeValueException(Exception):
 
 def check_tokens():
     """
-    Проверяет доступность переменных окружения,
-    которые необходимы для работы программы.
+    Проверяет доступность переменных окружения.
     """
     general_info = 'Отсутствует обязательная переменная окружения: '
     if PRACTICUM_TOKEN is None:
@@ -59,8 +58,7 @@ def check_tokens():
 
 def send_message(bot, message):
     """
-    Отправляем сообщение в Telegram чат,
-    определяемый переменной окружения TELEGRAM_CHAT_ID.
+    Отправляем сообщение в Telegram чат.
     """
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
@@ -111,8 +109,7 @@ def check_response(response):
 
 def parse_status(homework):
     """
-    Извлекает из информации о конкретной домашней работе
-    и статус этой работы.
+    Извлекает статусы конкретной домашней работы.
     """
     if 'homework_name' not in homework:
         raise KeyError('Ответ от API не содержит ключа "homework_name".')
@@ -142,11 +139,12 @@ def main():
         try:
             response = get_api_answer(timestamp)
             homework = check_response(response)[0]
-            if homework is not None:
+            if homework:
                 message = parse_status(homework)
-                if message is not None:
+                logger.info(f'Есть обновление{message}')
+                if message:
                     send_message(bot, message)
-            timestamp = response['current_date']
+            timestamp = response.get('current_date', timestamp)
             time.sleep(RETRY_PERIOD)
 
         except Exception as error:
