@@ -40,7 +40,8 @@ class NegativeValueException(Exception):
 
 
 def check_tokens():
-    """Проверяет доступность переменных окружения,
+    """
+    Проверяет доступность переменных окружения,
     которые необходимы для работы программы.
     """
     general_info = 'Отсутствует обязательная переменная окружения: '
@@ -57,7 +58,8 @@ def check_tokens():
 
 
 def send_message(bot, message):
-    """Отправляем сообщение в Telegram чат,
+    """
+    Отправляем сообщение в Telegram чат,
     определяемый переменной окружения TELEGRAM_CHAT_ID.
     """
     try:
@@ -108,7 +110,8 @@ def check_response(response):
 
 
 def parse_status(homework):
-    """Извлекает из информации о конкретной домашней работе
+    """
+    Извлекает из информации о конкретной домашней работе
     и статус этой работы.
     """
     if 'homework_name' not in homework:
