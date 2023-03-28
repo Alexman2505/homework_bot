@@ -24,40 +24,78 @@ HOMEWORK_VERDICTS = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.',
 }
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    filename='main.log',
-    filemode='a',
-    format='%(asctime)s, %(levelname)s, %(message)s, %(name)s',
-    encoding='utf-8',
-)
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.StreamHandler(stream=sys.stdout))
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+    '%(asctime)s, %(levelname)s, %(message)s, %(name)s'
+)
+handler = logging.StreamHandler(stream=sys.stdout)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 
-class NegativeValueException(Exception):
-    """Класс исключений."""
+class UnsuccessfullAnswerException(Exception):
+    """Исключение, возникающее при отсутствии успешного ответа от API Домашка.
+
+    Будет "перехвачено", если статус ответа от сервера API ЯП Домашка
+    не будет равен 200, либо если вообще не придет ответ от этого сервера.
+    """
 
     pass
 
 
-def check_tokens():
-    """Проверяет доступность переменных окружения."""
-    general_info = 'Отсутствует обязательная переменная окружения: '
-    if PRACTICUM_TOKEN is None:
-        logger.critical(f'{general_info} PRACTICUM_TOKEN')
-        return False
-    elif TELEGRAM_TOKEN is None:
-        logger.critical(f'{general_info} TELEGRAM_TOKEN')
-        return False
-    elif TELEGRAM_CHAT_ID is None:
-        logger.critical(f'{general_info} TELEGRAM_CHAT_ID')
-        return False
+class TokenUnexistingException(Exception):
+    """Исключение, возникающее при отсутствии обязательного токена.
+
+    Будет "перехвачено", если в переменых окружения нет одного
+    из нужных токенов.
+    """
+
+    pass
+
+
+class HomeworkStatusIsUncorrectException(Exception):
+    """Исключение, возникающее при некорректном статусе домашней работы.
+
+    Будет "перехвачено", если API ЯП Домашки возвратит недокументированный
+    статус домашней работы, либо домашку без статуса.
+    """
+
+    pass
+
+
+class HomeworksAreAbsentException(Exception):
+    """Исключение, возникающее при отсутствии домашних работ.
+
+    Будет "перехвачено", если в ответе от API ЯП Домашка не будет информации
+    о новых домашках. Не является "ошибкой", т.к. информация о новых домашках
+    в ответе от сервера зависит от временной метки,
+    начиная с которой идет запрос.
+    """
+
+    pass
+
+
+def check_tokens() -> bool:
+    """Проверяет доступность переменных окружения.
+
+    Возвращает "истину", если все переменные окружения доступны.
+    Если какой-то переменной в окружении нет -
+    выбрасывает исключение.
+    """
+    TOKENS = {
+        'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
+        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
+        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
+    }
+    for value in TOKENS.values():
+        if value is None:
+            raise TokenUnexistingException()
     return True
 
 
 def send_message(bot, message):
-    """Отправляем сообщение в Telegram чат."""
+    """Отправляет сообщение в Telegram чат."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug('Сообщение отправлено')
@@ -65,61 +103,78 @@ def send_message(bot, message):
         logger.error(error)
 
 
-def get_api_answer(timestamp):
-    """Делает запрос к единственному эндпоинту API-сервиса."""
-    params = {'from_date': timestamp or int(time.time())}
+def get_api_answer(timestamp: int) -> dict:
+    """Делает запрос к API ЯП Домашка с временной меткой timestamp.
+
+    Возвращает ответ от API ЯП Домашка,
+    который мы приводим методом ".json()" к словарю.
+    При этом может быть 2 исключения. Прогнозируемое со статусом
+    ответа != 200, и общее, если API поломался.
+    """
+    params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         if response.status_code != HTTPStatus.OK:
-            message = 'Сервер не отвечает'
-            logger.error(message)
-            raise Exception(message)
+            raise UnsuccessfullAnswerException(
+                'Ответ от API ЯП получен,но статус ответа не "успешный"',
+                'Это внутренняя ошибка на стороне сервера ЯП Домашка.',
+            )
         return response.json()
     except Exception:
-        message = 'Ошибка API'
-        logger.error(message)
-        raise NegativeValueException(message)
-
-
-def check_response(response):
-    """Проверяет ответ API на соответствие документации."""
-    message = {
-        'not_dict': 'Ответ API не является словарем',
-        'not_in': 'В ответе API нет домашней работы',
-        'len_zero': 'Ответ API пришел без новых данных',
-        'not_list': 'Ответ API не в виде списка',
-    }
-    if type(response) is not dict:
-        logger.error(message.get('not_dict'))
-        raise TypeError(message.get('not_dict'))
-    elif ['homeworks'][0] not in response:
-        logger.error(message.get('not_in'))
-        raise IndexError(message.get('not_in'))
-    elif len(response['homeworks']) == 0:
-        logger.error(message.get('len_zero'))
-        raise NegativeValueException(message.get('len_zero'))
-    elif type(response['homeworks']) is not list:
-        logger.error(message.get('not_list'))
-        raise TypeError(message.get('not_list'))
-    homework = response['homeworks']
-    return homework
-
-
-def parse_status(homework):
-    """Извлекает статусы конкретной домашней работы."""
-    if 'homework_name' not in homework:
-        raise KeyError('Ответ от API не содержит ключа "homework_name".')
-    homework_name = homework['homework_name']
-    if 'status' not in homework:
-        logger.warning('Ответ от API не содержит ключа "status".')
-        raise NegativeValueException(
-            'Ответ от API не содержит ключа "status".'
+        raise UnsuccessfullAnswerException(
+            'Вообще не удалось получить ответ от API ЯП Домашка.'
+            'Нет доступа к серверам ЯП, чтобы получить подробную ошибку'
         )
-    homework_status = homework['status']
-    if homework_status not in HOMEWORK_VERDICTS:
-        logger.debug('Отсутствует в ответе новые статусы')
-        raise NegativeValueException('Отсутствует в ответе новые статусы')
-    verdict = HOMEWORK_VERDICTS[homework_status]
+
+
+def check_response(response: dict) -> bool:
+    """Проверяет ответ API ЯП Домашка.
+
+    Проверяет содержимое словаря "response" на соответствие некоторым тестам.
+    Возвращает "истину", если данные в словаре валидны.
+    А если API ЯП Домашка вернул словарь с невалидными данными -
+    выбрасываются некоторые "встроенные" исключения и одно собственное.
+    """
+    message = {
+        'not_dict': 'Ответ API ЯП не является словарем',
+        'not_in_homework': 'В ответе API ЯП нет ключа homeworks',
+        'not_in_current_date': 'В ответе API ЯП нет ключа current_date',
+        'not_list': 'Ответ API ЯП не в виде списка',
+        'not_time': 'API ЯП вернул некорректное время',
+        'len_zero': 'Ответ API ЯП пришел без данных о новых домашках',
+    }
+    if not isinstance(response, dict):
+        raise TypeError(message.get('not_dict'))
+    if 'homeworks' not in response:
+        raise KeyError(message.get('not_in_homework'))
+    if 'current_date' not in response:
+        raise KeyError(message.get('not_in_current_date'))
+    if not isinstance(response.get('homeworks'), list):
+        raise TypeError(message.get('not_list'))
+    if not isinstance(response.get('current_date'), int):
+        raise TypeError(message.get('not_time'))
+    if len(response.get('homeworks')) == 0:
+        raise HomeworksAreAbsentException(message.get('len_zero'))
+    return True
+
+
+def parse_status(homework: dict) -> str:
+    """Извлекает статусы конкретной домашней работы.
+
+    Проверяет название и статус домашней работы на "валидность".
+    И отправляет строку с информацией об изменения статуса домашней работы.
+    Если данные не валидны - перехватываются исключения.
+    """
+    if 'homework_name' not in homework:
+        raise KeyError(
+            'Ответ от API ЯП домашка не содержит ключа "homework_name".'
+        )
+    if homework.get('status') not in HOMEWORK_VERDICTS:
+        raise HomeworkStatusIsUncorrectException(
+            'У домашней работы некорректный статус.'
+        )
+    homework_name = homework.get('homework_name')
+    verdict = HOMEWORK_VERDICTS.get(homework.get('status'))
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -127,25 +182,36 @@ def main():
     """Основная логика работы бота."""
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-    if not check_tokens():
-        logger.critical('Ошибка Аутентификации')
-        exit()
-
+    try:
+        check_tokens()
+    except TokenUnexistingException:
+        logger.critical('Отсутствует обязательная переменная окружения')
+        sys.exit()
+    mistake_info_send_to_bot = None
     while True:
         try:
             response = get_api_answer(timestamp)
-            homework = check_response(response)[0]
-            if homework:
+            if check_response(response):
+                homework = response.get('homeworks')[0]
                 message = parse_status(homework)
-                logger.info(f'Есть обновление{message}')
-                if message:
-                    send_message(bot, message)
+                logger.info(f'Есть обновление {message}')
+                send_message(bot, message)
             timestamp = response.get('current_date', timestamp)
-            time.sleep(RETRY_PERIOD)
-
-        except Exception as error:
+        except HomeworksAreAbsentException as deb:
+            logger.debug(deb)
+        except (
+            TypeError,
+            KeyError,
+            HomeworkStatusIsUncorrectException,
+            UnsuccessfullAnswerException,
+            Exception,
+        ) as error:
+            logger.error(error, exc_info=True)
             message = f'Сбой в работе программы: {error}'
-            send_message(bot, message)
+            if message != mistake_info_send_to_bot:
+                send_message(bot, message)
+                mistake_info_send_to_bot = message
+        finally:
             time.sleep(RETRY_PERIOD)
 
 
