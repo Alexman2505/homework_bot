@@ -34,11 +34,21 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-class UnsuccessfullAnswerException(Exception):
+class UnsuccessAnswerException(Exception):
     """Исключение, возникающее при отсутствии успешного ответа от API Домашка.
 
     Будет "перехвачено", если статус ответа от сервера API ЯП Домашка
-    не будет равен 200, либо если вообще не придет ответ от этого сервера.
+    пришел, но код ответа не равен 200. Это проблема на стороне ЯП Домашки.
+    """
+
+    pass
+
+
+class TotallyUnsuccessAnswerException(Exception):
+    """Исключение, возникающее при отсутствии какой-либо связи с серверами.
+
+    Будет "перехвачено", если статус ответа от сервера API ЯП Домашка
+    вообще не пришел. Т.е. сервер API ЯП домашка не отвечает на запросы.
     """
 
     pass
@@ -65,7 +75,7 @@ class HomeworkStatusIsUncorrectException(Exception):
 
 
 class HomeworksAreAbsentException(Exception):
-    """Исключение, возникающее при отсутствии домашних работ.
+    """Исключение, возникающее при отсутствии новых домашних работ.
 
     Будет "перехвачено", если в ответе от API ЯП Домашка не будет информации
     о новых домашках. Не является "ошибкой", т.к. информация о новых домашках
@@ -88,19 +98,17 @@ def check_tokens() -> bool:
         'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
         'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
     }
-    for value in TOKENS.values():
-        if value is None:
-            raise TokenUnexistingException()
+    global FORGET_TOKENS
+    FORGET_TOKENS = []
+    for token_key in TOKENS.keys():
+        if TOKENS[token_key] is None:
+            FORGET_TOKENS.append(token_key)
+    if len(FORGET_TOKENS) != 0:
+        raise TokenUnexistingException(
+            f'Потеряны переменные окружения из'
+            f'этого списка  {FORGET_TOKENS}'
+        )
     return True
-
-
-def send_message(bot, message):
-    """Отправляет сообщение в Telegram чат."""
-    try:
-        bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug('Сообщение отправлено')
-    except Exception as error:
-        logger.error(error)
 
 
 def get_api_answer(timestamp: int) -> dict:
@@ -114,17 +122,18 @@ def get_api_answer(timestamp: int) -> dict:
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-        if response.status_code != HTTPStatus.OK:
-            raise UnsuccessfullAnswerException(
-                'Ответ от API ЯП получен,но статус ответа не "успешный"',
-                'Это внутренняя ошибка на стороне сервера ЯП Домашка.',
-            )
-        return response.json()
     except Exception:
-        raise UnsuccessfullAnswerException(
+        raise TotallyUnsuccessAnswerException(
             'Вообще не удалось получить ответ от API ЯП Домашка.'
             'Нет доступа к серверам ЯП, чтобы получить подробную ошибку'
         )
+    else:
+        if response.status_code != HTTPStatus.OK:
+            raise UnsuccessAnswerException(
+                'Ответ от API ЯП получен,но статус ответа не "успешный"',
+                'Это внутренняя ошибка на стороне сервера ЯП Домашка.',
+            )
+    return response.json()
 
 
 def check_response(response: dict) -> bool:
@@ -178,6 +187,15 @@ def parse_status(homework: dict) -> str:
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
+def send_message(bot, message):
+    """Отправляет сообщение в Telegram чат."""
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.debug('Сообщение отправлено')
+    except Exception as err:
+        logger.error(err)
+
+
 def main():
     """Основная логика работы бота."""
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
@@ -185,29 +203,32 @@ def main():
     try:
         check_tokens()
     except TokenUnexistingException:
-        logger.critical('Отсутствует обязательная переменная окружения')
+        logger.critical(
+            f'Отсутствует обязательная переменная окружения {FORGET_TOKENS}'
+        )
         sys.exit()
     mistake_info_send_to_bot = None
     while True:
         try:
             response = get_api_answer(timestamp)
+            timestamp = response.get('current_date')
             if check_response(response):
                 homework = response.get('homeworks')[0]
                 message = parse_status(homework)
                 logger.info(f'Есть обновление {message}')
                 send_message(bot, message)
-            timestamp = response.get('current_date', timestamp)
         except HomeworksAreAbsentException as deb:
             logger.debug(deb)
         except (
             TypeError,
             KeyError,
             HomeworkStatusIsUncorrectException,
-            UnsuccessfullAnswerException,
+            UnsuccessAnswerException,
+            TotallyUnsuccessAnswerException,
             Exception,
-        ) as error:
-            logger.error(error, exc_info=True)
-            message = f'Сбой в работе программы: {error}'
+        ) as err:
+            logger.error(err, exc_info=True)
+            message = f'Сбой в работе программы: {err}'
             if message != mistake_info_send_to_bot:
                 send_message(bot, message)
                 mistake_info_send_to_bot = message
