@@ -98,15 +98,14 @@ def check_tokens() -> bool:
         'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
         'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
     }
-    global FORGET_TOKENS
     FORGET_TOKENS = []
     for token_key in TOKENS.keys():
         if TOKENS[token_key] is None:
             FORGET_TOKENS.append(token_key)
     if len(FORGET_TOKENS) != 0:
         raise TokenUnexistingException(
-            f'Потеряны переменные окружения из'
-            f'этого списка  {FORGET_TOKENS}'
+            f'Потеряны переменные окружения из '
+            f'этого списка {FORGET_TOKENS}'
         )
     return True
 
@@ -202,16 +201,14 @@ def main():
     timestamp = int(time.time())
     try:
         check_tokens()
-    except TokenUnexistingException:
-        logger.critical(
-            f'Отсутствует обязательная переменная окружения {FORGET_TOKENS}'
-        )
+    except TokenUnexistingException as token:
+        logger.critical(f'{token}')
         sys.exit()
     mistake_info_send_to_bot = None
     while True:
         try:
             response = get_api_answer(timestamp)
-            timestamp = response.get('current_date')
+            timestamp = response.get('current_date', timestamp)
             if check_response(response):
                 homework = response.get('homeworks')[0]
                 message = parse_status(homework)
