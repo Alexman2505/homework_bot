@@ -1,11 +1,12 @@
-import os
 import logging
-import telegram
-import time
-import requests
+import os
 import sys
-
+import time
 from http import HTTPStatus
+from typing import Any, Optional, Union, cast
+
+import requests
+import telegram
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -86,14 +87,14 @@ class HomeworksAreAbsentException(Exception):
     pass
 
 
-def check_tokens() -> bool:
+def check_tokens() -> Union[bool, None]:
     """Проверяет доступность переменных окружения.
 
     Возвращает "истину", если все переменные окружения доступны.
     Если какой-то переменной в окружении нет -
     выбрасывает исключение.
     """
-    TOKENS = {
+    TOKENS: dict[str, Optional[str]] = {
         'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
         'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
         'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
@@ -110,7 +111,7 @@ def check_tokens() -> bool:
     return True
 
 
-def get_api_answer(timestamp: int) -> dict:
+def get_api_answer(timestamp: int) -> Union[dict, None]:
     """Делает запрос к API ЯП Домашка с временной меткой timestamp.
 
     Возвращает ответ от API ЯП Домашка,
@@ -135,7 +136,7 @@ def get_api_answer(timestamp: int) -> dict:
     return response.json()
 
 
-def check_response(response: dict) -> bool:
+def check_response(response: dict) -> Union[bool, None]:
     """Проверяет ответ API ЯП Домашка.
 
     Проверяет содержимое словаря "response" на соответствие некоторым тестам.
@@ -143,30 +144,31 @@ def check_response(response: dict) -> bool:
     А если API ЯП Домашка вернул словарь с невалидными данными -
     выбрасываются некоторые "встроенные" исключения и одно собственное.
     """
-    message = {
-        'not_dict': 'Ответ API ЯП не является словарем',
-        'not_in_homework': 'В ответе API ЯП нет ключа homeworks',
-        'not_in_current_date': 'В ответе API ЯП нет ключа current_date',
-        'not_list': 'Ответ API ЯП не в виде списка',
-        'not_time': 'API ЯП вернул некорректное время',
-        'len_zero': 'Ответ API ЯП пришел без данных о новых домашках',
-    }
     if not isinstance(response, dict):
-        raise TypeError(message.get('not_dict'))
+        raise TypeError('Ответ API ЯП не является словарем')
     if 'homeworks' not in response:
-        raise KeyError(message.get('not_in_homework'))
+        raise KeyError('В ответе API ЯП нет ключа homeworks')
     if 'current_date' not in response:
-        raise KeyError(message.get('not_in_current_date'))
+        raise KeyError('В ответе API ЯП нет ключа current_date')
     if not isinstance(response.get('homeworks'), list):
-        raise TypeError(message.get('not_list'))
-    if not isinstance(response.get('current_date'), int):
-        raise TypeError(message.get('not_time'))
-    if len(response.get('homeworks')) == 0:
-        raise HomeworksAreAbsentException(message.get('len_zero'))
+        raise TypeError('Ответ API ЯП не в виде списка')
+    current_date: Optional[Union[int, None]] = response.get('current_date')
+    if (
+        current_date is None
+        or not isinstance(current_date, int)
+        or current_date < 0
+        or current_date > int(time.time())
+    ):
+        raise TypeError('API ЯП вернул некорректное время')
+    homeworks: Optional[list[Any]] = response.get('homeworks')
+    if homeworks is None or len(homeworks) == 0:
+        raise HomeworksAreAbsentException(
+            'Ответ API ЯП пришел без данных о новых домашках'
+        )
     return True
 
 
-def parse_status(homework: dict) -> str:
+def parse_status(homework: dict) -> Union[str, None]:
     """Извлекает статусы конкретной домашней работы.
 
     Проверяет название и статус домашней работы на "валидность".
@@ -182,11 +184,13 @@ def parse_status(homework: dict) -> str:
             'У домашней работы некорректный статус.'
         )
     homework_name = homework.get('homework_name')
-    verdict = HOMEWORK_VERDICTS.get(homework.get('status'))
+    verdict: Optional[str] = HOMEWORK_VERDICTS.get(
+        cast(str, homework.get('status'))
+    )
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
-def send_message(bot, message):
+def send_message(bot: telegram.Bot, message: str) -> None:
     """Отправляет сообщение в Telegram чат."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
@@ -208,12 +212,12 @@ def main():
     while True:
         try:
             response = get_api_answer(timestamp)
-            timestamp = response.get('current_date', timestamp)
             if check_response(response):
                 homework = response.get('homeworks')[0]
                 message = parse_status(homework)
                 logger.info(f'Есть обновление {message}')
                 send_message(bot, message)
+                timestamp = response.get('current_date', timestamp)
         except HomeworksAreAbsentException as deb:
             logger.debug(deb)
         except (
