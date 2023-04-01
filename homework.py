@@ -217,7 +217,7 @@ def main():
                 message = parse_status(homework)
                 logger.info(f'Есть обновление {message}')
                 send_message(bot, message)
-                timestamp = response.get('current_date', timestamp)
+            timestamp = response.get('current_date', timestamp)
         except HomeworksAreAbsentException as deb:
             logger.debug(deb)
         except (
