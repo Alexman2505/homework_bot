@@ -144,14 +144,10 @@ def check_response(response: dict) -> None:
     """
     if not isinstance(response, dict):
         raise TypeError('Ответ API ЯП не является словарем, а должен')
-    if 'homeworks' not in response:
+    if ('homeworks' or 'current_date') not in response:
         raise KeyError(
-            'В ответе API ЯП нет ключа homeworks, а это первый из '
-            'двух ключей, в нем должен лежат список всех домашек.'
-        )
-    if 'current_date' not in response:
-        raise KeyError(
-            'В ответе API ЯП нет ключа current_date, в нем лежит время'
+            'В ответе API ЯП нет ключа homeworks или current_date. '
+            'А это ключи под которыми лежит время запроса и список домашек'
         )
     if not isinstance(response.get('homeworks'), list):
         raise TypeError('Ответ API ЯП не в виде структуры данных "список".')
