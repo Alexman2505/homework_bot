@@ -167,12 +167,11 @@ def parse_status(homework: dict) -> str:
     И отправляет строку с информацией об изменения статуса домашней работы.
     Если данные не валидны - перехватываются исключения.
     """
-    if 'homework_name' not in homework:
+    if ('homework_name' or 'status') not in homework:
         raise KeyError(
-            'Ответ от API ЯП домашка не содержит ключа "homework_name".'
+            'Ответ от API ЯП домашка не содержит ключа "homework_name". '
+            'или ключа "status".'
         )
-    if 'status' not in homework:
-        raise KeyError('Ответ от API ЯП домашка не содержит ключа "status".')
     if homework.get('status') not in HOMEWORK_VERDICTS:
         raise HomeworkStatusIsUncorrectException(
             'У домашней работы некорректный статус.'
